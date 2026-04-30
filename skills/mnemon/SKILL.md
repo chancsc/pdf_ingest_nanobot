@@ -94,6 +94,38 @@ Options (append to the command):
 - `--overlap-words N` — overlap between chunks (default: 50)
 - `--store NAME` — target a specific Mnemon store
 
+## Butterfly Species Lookup (with image)
+
+When the user asks about a butterfly species, recall from mnemon — the fact includes the image path:
+
+```
+exec(command="/root/go/bin/mnemon recall 'Graphium procles' --limit 3")
+```
+
+The fact text contains `image: /path/to/butterfly_images/Graphium_procles.png`.
+
+To send the image back via Telegram, extract the path from the fact and use:
+
+```
+exec(command="""curl -s -X POST "https://api.telegram.org/bot$(python3 -c "import json; print(json.load(open('/root/.nanobot/config.json'))['channels']['telegram']['token'])")/sendPhoto" -F "chat_id=CHAT_ID" -F "photo=@/path/to/image.png" -F "caption=Graphium procles / Kinabalu Bluebottle"  """)
+```
+
+Replace `CHAT_ID` with the user's Telegram ID from the current session (e.g. `5043136258`).
+
+### Butterfly Extraction Script
+
+To extract all species names + images from a PDF (pages 7–86):
+
+```
+exec(command="nohup /root/nano_env/bin/python /root/.nanobot/workspace/skills/mnemon/extract_butterflies.py 'https://...' --images-dir /root/.nanobot/workspace/butterfly_images --output /tmp/butterflies.csv --index > /tmp/butterfly_extract.log 2>&1 & echo PID:$!")
+```
+
+Options:
+- `--images-dir DIR` — where to save PNG images (default: `butterfly_images`)
+- `--index` — auto-index all species into mnemon (includes image path in fact)
+- `--store NAME` — target mnemon store
+- `--dpi N` — image resolution (default: 150)
+
 ## Guardrails
 
 - Never run `remember` or `link` in the main conversation — always delegate to a sub-agent via `spawn`.
