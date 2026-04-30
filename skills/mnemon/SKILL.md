@@ -96,31 +96,34 @@ Options (append to the command):
 
 ## Butterfly Species Lookup (with image)
 
-Species data lives in `/root/.nanobot/workspace/butterflies.csv` (columns: page, scientific_name, common_name, image_path).
+Two separate data sources:
+- **Text + descriptions** → default mnemon store (ingested via `ingest.py`, large chunks)
+- **Image paths** → `/root/.nanobot/workspace/butterflies.csv` (columns: page, scientific_name, common_name, image_path, description)
 
-**IMPORTANT: Always look up from the CSV. Never use your own training knowledge for species names — it may be wrong.**
+**IMPORTANT: Always look up from these sources. Never use training knowledge for species names.**
 
-**Step 1 — Look up the CSV** (replace query with the user's input):
+**Step 1 — Recall text from mnemon:**
+```
+exec(command="/root/go/bin/mnemon recall 'kinabalu birdwing' --limit 3")
+```
+
+**Step 2 — Look up image path from CSV:**
 ```
 exec(command="python3 -c \"
 import csv, json
 data = list(csv.DictReader(open('/root/.nanobot/workspace/butterflies.csv')))
 q = 'kinabalu birdwing'
-matches = [r for r in data if q.lower() in r['scientific_name'].lower() or q.lower() in r.get('common_name','').lower()]
-print(json.dumps(matches))
+m = next((r for r in data if q.lower() in r['scientific_name'].lower() or q.lower() in r.get('common_name','').lower()), None)
+print(json.dumps(m))
 \"")
 ```
 
-If no match found, tell the user the species was not found in the dataset. Do not guess.
-
-**Step 2 — Reply with text details** from the CSV result: scientific name, common name, page number.
-
-**Step 3 — Send image via Telegram:**
+**Step 3 — Reply with text details**, then send image via Telegram:
 ```
 exec(command="TOKEN=$(python3 -c \"import json; print(json.load(open('/root/.nanobot/config.json'))['channels']['telegram']['token'])\") && curl -s -X POST \"https://api.telegram.org/bot${TOKEN}/sendPhoto\" -F \"chat_id=<CHAT_ID>\" -F \"photo=@<IMAGE_PATH>\" -F \"caption=<SCIENTIFIC_NAME>\"")
 ```
 
-Replace `<CHAT_ID>` with the session user ID (e.g. `5043136258`), `<IMAGE_PATH>` with the `image_path` from the CSV result, and `<SCIENTIFIC_NAME>` with the species name.
+Replace `<CHAT_ID>` with session user ID (e.g. `5043136258`), `<IMAGE_PATH>` with `image_path` from the CSV result.
 
 ### When user sends a butterfly PDF
 
@@ -132,7 +135,7 @@ Two cases — ask the user which applies:
 - Use `--append` if adding to an existing dataset
 
 ```
-exec(command="nohup /root/nano_env/bin/python /root/.nanobot/workspace/skills/mnemon/extract_butterflies.py 'https://...' --start-page 7 --end-page 86 --images-dir /root/.nanobot/workspace/butterfly_images --output /root/.nanobot/workspace/butterflies.csv --append > /tmp/butterfly_extract.log 2>&1 & echo PID:$!")
+exec(command="nohup /root/nano_env/bin/python /root/.nanobot/workspace/skills/mnemon/extract_butterflies.py 'https://...' --start-page 7 --end-page 86 --images-dir /root/.nanobot/workspace/butterfly_images --output /root/.nanobot/workspace/butterflies.csv > /tmp/butterfly_extract.log 2>&1 & echo PID:$!")
 ```
 
 **Case B — Text-heavy reference PDF** (species descriptions, checklists, field notes):

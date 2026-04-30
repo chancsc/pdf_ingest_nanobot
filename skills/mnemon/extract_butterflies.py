@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Extract butterfly species names and images from PDF pages.
+"""Extract butterfly species from a PDF and index into mnemon.
 
-Iterates pages 7–86, extracts text (scientific + common name) and renders
-each page as a PNG image saved to an images directory.
+Each page yields one mnemon fact containing: scientific name, common name,
+description, and image path — all in one chunk so a single recall returns
+everything. Image path is embedded as [image: /path] for the nanobot to pick up.
 
 Usage:
     python extract_butterflies.py <url_or_path> [options]
@@ -10,11 +11,12 @@ Usage:
 Options:
     --start-page N      First page to extract (1-based, default: 7)
     --end-page N        Last page to extract (1-based, default: 86)
-    --output FILE       CSV output file (default: butterflies.csv)
+    --output FILE       CSV output file for review (default: butterflies.csv)
+    --append            Append to existing CSV instead of overwriting
     --images-dir DIR    Directory to save butterfly images (default: butterfly_images)
-    --dpi N             Image render resolution (default: 150)
-    --store NAME        Mnemon store to index into (optional)
-    --index             Index results into mnemon after extraction
+    --dpi N             Fallback render resolution if no embedded image (default: 150)
+    --store NAME        Mnemon store name (default: butterflies)
+    --no-index          Skip mnemon indexing (extract only)
 """
 import argparse
 import csv
@@ -29,6 +31,7 @@ from pathlib import Path
 
 
 MNEMON = os.environ.get("MNEMON_BIN", "/root/go/bin/mnemon")
+DEFAULT_STORE = "butterflies"
 
 
 def gdrive_direct(url: str) -> str:
@@ -62,11 +65,13 @@ def extract_page_text(reader, page_index: int) -> str:
     return reader.pages[page_index].extract_text() or ""
 
 
-def parse_names(text: str) -> dict:
+def parse_page(text: str) -> dict:
     """Page layout:
         Line 1: species index number (e.g. "2")
-        Line 2: scientific name with author, e.g. "Graphium procles (Grose-Smith)"
-        Line 3: common name (optional) — absent when line starts with "Length"
+        Line 2: scientific name with author
+        Line 3: common name (optional, absent if next line starts with "Length")
+        "Length of forewing: ..." line
+        Description text
     """
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
@@ -76,24 +81,31 @@ def parse_names(text: str) -> dict:
         idx += 1
 
     if idx >= len(lines):
-        return {"scientific_name": None, "common_name": None}
+        return {"scientific_name": None, "common_name": None, "description": None}
 
-    # Strip all parenthetical groups (subgenus + author)
-    raw_sci = lines[idx]
-    scientific_name = re.sub(r"\s*\([^)]+\)", "", raw_sci).strip()
+    # Scientific name — strip all parenthetical groups (subgenus + author)
+    scientific_name = re.sub(r"\s*\([^)]+\)", "", lines[idx]).strip()
+    idx += 1
 
+    # Common name (optional)
     common_name = None
-    if idx + 1 < len(lines) and not lines[idx + 1].startswith("Length"):
-        common_name = lines[idx + 1]
+    if idx < len(lines) and not lines[idx].startswith("Length"):
+        common_name = lines[idx]
+        idx += 1
 
-    return {"scientific_name": scientific_name, "common_name": common_name}
+    # Skip the "Length of forewing: ..." measurement line
+    if idx < len(lines) and lines[idx].startswith("Length"):
+        idx += 1
+
+    # Remaining lines = description
+    description = " ".join(lines[idx:]).strip() or None
+
+    return {"scientific_name": scientific_name, "common_name": common_name, "description": description}
 
 
 def extract_page_image(pdf_path: Path, page_index: int, dest: Path, dpi: int) -> bool:
     """Extract the largest embedded image from a PDF page.
-
-    Falls back to rendering the full page if no embedded image is found.
-    Returns True on success.
+    Falls back to rendering the full page if no embedded image found.
     """
     try:
         import fitz
@@ -103,19 +115,14 @@ def extract_page_image(pdf_path: Path, page_index: int, dest: Path, dpi: int) ->
     if page_index >= len(doc):
         doc.close()
         return False
-
     page = doc[page_index]
     images = page.get_images(full=True)
-
     if images:
-        # Pick the largest image by pixel area
-        best = max(images, key=lambda img: img[2] * img[3])  # width * height
-        xref = best[0]
-        img_data = doc.extract_image(xref)
+        best = max(images, key=lambda img: img[2] * img[3])
+        img_data = doc.extract_image(best[0])
         dest.write_bytes(img_data["image"])
         doc.close()
         return True
-
     # Fallback: render full page
     mat = fitz.Matrix(dpi / 72, dpi / 72)
     pix = page.get_pixmap(matrix=mat)
@@ -124,46 +131,35 @@ def extract_page_image(pdf_path: Path, page_index: int, dest: Path, dpi: int) ->
     return True
 
 
-def safe_filename(scientific_name: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_]", "_", scientific_name).strip("_")
+def safe_filename(name: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_]", "_", name).strip("_")
 
 
-def mnemon_index(record: dict, source: str, store: str | None) -> None:
-    sci = record.get("scientific_name") or ""
-    common = record.get("common_name") or ""
-    image_path = record.get("image_path") or ""
-    page = record.get("page", "?")
-    if not sci:
-        return
-
-    fact = f"Butterfly species: scientific name '{sci}'"
-    if common:
-        fact += f", common name '{common}'"
-    if image_path:
-        fact += f", image: {image_path}"
-    fact += f" (page {page})"
-
+def mnemon_remember(fact: str, entities: str, source: str, store: str) -> str:
     cmd = [MNEMON, "remember", fact, "--cat", "fact", "--imp", "3",
-           "--entities", sci, "--source", source]
-    if store:
-        cmd += ["--store", store]
+           "--entities", entities, "--source", source, "--store", store]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
-        print(f"  [mnemon] failed: {result.stderr[:80]}")
+        return f"FAILED: {result.stderr[:80]}"
+    import json
+    try:
+        return json.loads(result.stdout).get("action", "stored")
+    except Exception:
+        return "stored"
 
 
 def main():
     sys.stdout.reconfigure(line_buffering=True)
-    parser = argparse.ArgumentParser(description="Extract butterfly species names and images from PDF.")
+    parser = argparse.ArgumentParser(description="Extract butterfly species from PDF and index into mnemon.")
     parser.add_argument("source", help="URL or local path to PDF")
     parser.add_argument("--start-page", type=int, default=7)
     parser.add_argument("--end-page", type=int, default=86)
     parser.add_argument("--output", default="butterflies.csv")
-    parser.add_argument("--append", action="store_true", help="Append to existing CSV instead of overwriting")
+    parser.add_argument("--append", action="store_true")
     parser.add_argument("--images-dir", default="butterfly_images")
     parser.add_argument("--dpi", type=int, default=150)
-    parser.add_argument("--store", default=None)
-    parser.add_argument("--index", action="store_true")
+    parser.add_argument("--store", default=DEFAULT_STORE)
+    parser.add_argument("--no-index", action="store_true")
     args = parser.parse_args()
 
     src = args.source.strip()
@@ -171,12 +167,12 @@ def main():
     if src.startswith("http://") or src.startswith("https://"):
         pdf_path = download_pdf(src)
         downloaded = True
-        source_tag = "butterfly_pdf"
+        source_tag = Path(pdf_path).stem
     else:
         pdf_path = Path(src).expanduser().resolve()
         if not pdf_path.exists():
             sys.exit(f"File not found: {pdf_path}")
-        source_tag = pdf_path.name
+        source_tag = pdf_path.stem
 
     images_dir = Path(args.images_dir).resolve()
     images_dir.mkdir(parents=True, exist_ok=True)
@@ -187,23 +183,27 @@ def main():
         sys.exit("pypdf not installed — run: pip install pypdf")
     reader = PdfReader(str(pdf_path))
 
+    # Ensure mnemon store exists
+    if not args.no_index:
+        subprocess.run([MNEMON, "store", "create", args.store],
+                       capture_output=True, text=True)
+
     start_idx = args.start_page - 1
     end_idx = args.end_page - 1
     total = end_idx - start_idx + 1
-    print(f"Extracting pages {args.start_page}–{args.end_page} ({total} pages)")
-    print(f"Saving images to: {images_dir}")
+    print(f"Extracting pages {args.start_page}–{args.end_page} ({total} pages) → store: {args.store}")
 
     results = []
     for i, page_idx in enumerate(range(start_idx, end_idx + 1), 1):
         page_num = page_idx + 1
         text = extract_page_text(reader, page_idx)
-        record = parse_names(text)
+        record = parse_page(text)
         record["page"] = page_num
 
         sci = record["scientific_name"]
         common = record["common_name"] or ""
 
-        # Save page image
+        # Save embedded image
         image_path = ""
         if sci:
             fname = safe_filename(sci) + ".png"
@@ -213,31 +213,36 @@ def main():
         record["image_path"] = image_path
 
         label = (sci or "—") + (f" / {common}" if common else "")
-        img_ok = "🖼" if image_path else "✗"
-        print(f"  [{i}/{total}] page {page_num}: {label} {img_ok}")
+        print(f"  [{i}/{total}] page {page_num}: {label} {'🖼' if image_path else '✗'}", end="")
+
+        # Index a minimal image-mapping fact into mnemon
+        # Just: species name + image path — kept short and unique to avoid dedup
+        if not args.no_index and sci and image_path:
+            fact = f"{sci}"
+            if common:
+                fact += f" ({common})"
+            fact += f" [image: {image_path}] [page {page_num}]"
+
+            entities = sci + (f",{common}" if common else "")
+            action = mnemon_remember(fact, entities, source_tag, args.store)
+            print(f" [{action}]")
+        else:
+            print()
 
         results.append(record)
-        if args.index and sci:
-            mnemon_index(record, source_tag, args.store)
 
-    # Write CSV (append or overwrite)
+    # Write CSV (for review/export)
     out_path = Path(args.output)
     mode = "a" if args.append and out_path.exists() else "w"
     with open(out_path, mode, newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["page", "scientific_name", "common_name", "image_path"])
+        writer = csv.DictWriter(f, fieldnames=["page", "scientific_name", "common_name", "image_path", "description"])
         if mode == "w":
             writer.writeheader()
         for r in results:
-            writer.writerow({
-                "page": r["page"],
-                "scientific_name": r.get("scientific_name") or "",
-                "common_name": r.get("common_name") or "",
-                "image_path": r.get("image_path") or "",
-            })
+            writer.writerow({k: r.get(k) or "" for k in ["page", "scientific_name", "common_name", "image_path", "description"]})
 
     found = sum(1 for r in results if r.get("scientific_name"))
-    images = sum(1 for r in results if r.get("image_path"))
-    print(f"\nDone: {found}/{total} species, {images} images saved → {out_path}")
+    print(f"\nDone: {found}/{total} species → {out_path}")
 
     if downloaded:
         pdf_path.unlink(missing_ok=True)
