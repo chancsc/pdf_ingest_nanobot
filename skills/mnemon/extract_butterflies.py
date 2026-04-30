@@ -159,6 +159,7 @@ def main():
     parser.add_argument("--start-page", type=int, default=7)
     parser.add_argument("--end-page", type=int, default=86)
     parser.add_argument("--output", default="butterflies.csv")
+    parser.add_argument("--append", action="store_true", help="Append to existing CSV instead of overwriting")
     parser.add_argument("--images-dir", default="butterfly_images")
     parser.add_argument("--dpi", type=int, default=150)
     parser.add_argument("--store", default=None)
@@ -219,11 +220,13 @@ def main():
         if args.index and sci:
             mnemon_index(record, source_tag, args.store)
 
-    # Write CSV
+    # Write CSV (append or overwrite)
     out_path = Path(args.output)
-    with open(out_path, "w", newline="", encoding="utf-8") as f:
+    mode = "a" if args.append and out_path.exists() else "w"
+    with open(out_path, mode, newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["page", "scientific_name", "common_name", "image_path"])
-        writer.writeheader()
+        if mode == "w":
+            writer.writeheader()
         for r in results:
             writer.writerow({
                 "page": r["page"],

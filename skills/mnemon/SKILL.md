@@ -120,16 +120,30 @@ exec(command="TOKEN=$(python3 -c \"import json; print(json.load(open('/root/.nan
 
 Replace `<CHAT_ID>` with the session user ID (e.g. `5043136258`), `<IMAGE_PATH>` with the `image_path` from the CSV, and `<SCIENTIFIC_NAME>` with the species name.
 
-### Butterfly Extraction Script
+### When user sends a butterfly PDF
 
-To extract all species names + images from a PDF (pages 7–86):
+Two cases — ask the user which applies:
+
+**Case A — Image-per-page guide** (one butterfly per page, like the Borneo endemic PDF):
+- Ask: "What page range contains the butterfly pages?" (e.g. 7–86)
+- Run `extract_butterflies.py` to extract names + images
+- Use `--append` if adding to an existing dataset
 
 ```
-exec(command="nohup /root/nano_env/bin/python /root/.nanobot/workspace/skills/mnemon/extract_butterflies.py 'https://...' --images-dir /root/.nanobot/workspace/butterfly_images --output /root/.nanobot/workspace/butterflies.csv > /tmp/butterfly_extract.log 2>&1 & echo PID:$!")
+exec(command="nohup /root/nano_env/bin/python /root/.nanobot/workspace/skills/mnemon/extract_butterflies.py 'https://...' --start-page 7 --end-page 86 --images-dir /root/.nanobot/workspace/butterfly_images --output /root/.nanobot/workspace/butterflies.csv --append > /tmp/butterfly_extract.log 2>&1 & echo PID:$!")
 ```
 
-Options:
-- `--images-dir DIR` — where to save PNG images (default: `butterfly_images`)
+**Case B — Text-heavy reference PDF** (species descriptions, checklists, field notes):
+- Use the standard `ingest.py` flow (chunks text into mnemon for RAG search)
+
+```
+exec(command="nohup /root/nano_env/bin/python /root/.nanobot/workspace/skills/mnemon/ingest.py 'https://...' > /tmp/mnemon_ingest.log 2>&1 & echo PID:$!")
+```
+
+Options for Case A:
+- `--start-page N` / `--end-page N` — page range
+- `--append` — add to existing CSV instead of overwriting
+- `--images-dir DIR` — where to save PNG images
 - `--dpi N` — image resolution (default: 150)
 
 ## Guardrails
