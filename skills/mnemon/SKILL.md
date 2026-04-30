@@ -98,27 +98,29 @@ Options (append to the command):
 
 Species data lives in `/root/.nanobot/workspace/butterflies.csv` (columns: page, scientific_name, common_name, image_path).
 
-When the user asks about a butterfly, look it up in the CSV then send both text and image:
+**IMPORTANT: Always look up from the CSV. Never use your own training knowledge for species names — it may be wrong.**
 
-**Step 1 — Lookup:**
+**Step 1 — Look up the CSV** (replace query with the user's input):
 ```
 exec(command="python3 -c \"
 import csv, json
 data = list(csv.DictReader(open('/root/.nanobot/workspace/butterflies.csv')))
-q = 'acerbas selta'
+q = 'kinabalu birdwing'
 matches = [r for r in data if q.lower() in r['scientific_name'].lower() or q.lower() in r.get('common_name','').lower()]
 print(json.dumps(matches))
 \"")
 ```
 
-**Step 2 — Reply with text details** (scientific name, common name, page number) as a normal message.
+If no match found, tell the user the species was not found in the dataset. Do not guess.
+
+**Step 2 — Reply with text details** from the CSV result: scientific name, common name, page number.
 
 **Step 3 — Send image via Telegram:**
 ```
 exec(command="TOKEN=$(python3 -c \"import json; print(json.load(open('/root/.nanobot/config.json'))['channels']['telegram']['token'])\") && curl -s -X POST \"https://api.telegram.org/bot${TOKEN}/sendPhoto\" -F \"chat_id=<CHAT_ID>\" -F \"photo=@<IMAGE_PATH>\" -F \"caption=<SCIENTIFIC_NAME>\"")
 ```
 
-Replace `<CHAT_ID>` with the session user ID (e.g. `5043136258`), `<IMAGE_PATH>` with the `image_path` from the CSV, and `<SCIENTIFIC_NAME>` with the species name.
+Replace `<CHAT_ID>` with the session user ID (e.g. `5043136258`), `<IMAGE_PATH>` with the `image_path` from the CSV result, and `<SCIENTIFIC_NAME>` with the species name.
 
 ### When user sends a butterfly PDF
 
