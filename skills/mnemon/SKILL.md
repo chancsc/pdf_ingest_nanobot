@@ -96,34 +96,39 @@ Options (append to the command):
 
 ## Butterfly Species Lookup (with image)
 
-When the user asks about a butterfly species, recall from mnemon — the fact includes the image path:
+Species data lives in `/root/.nanobot/workspace/butterflies.csv` (columns: page, scientific_name, common_name, image_path).
+
+When the user asks about a butterfly, look it up in the CSV:
 
 ```
-exec(command="/root/go/bin/mnemon recall 'Graphium procles' --limit 3")
+exec(command="python3 -c \"
+import csv
+data = list(csv.DictReader(open('/root/.nanobot/workspace/butterflies.csv')))
+q = 'acerbas selta'
+matches = [r for r in data if q.lower() in r['scientific_name'].lower() or q.lower() in r.get('common_name','').lower()]
+print(matches)
+\"")
 ```
 
-The fact text contains `image: /path/to/butterfly_images/Graphium_procles.png`.
-
-To send the image back via Telegram, extract the path from the fact and use:
+Once you have the match, send the image via Telegram:
 
 ```
-exec(command="""curl -s -X POST "https://api.telegram.org/bot$(python3 -c "import json; print(json.load(open('/root/.nanobot/config.json'))['channels']['telegram']['token'])")/sendPhoto" -F "chat_id=CHAT_ID" -F "photo=@/path/to/image.png" -F "caption=Graphium procles / Kinabalu Bluebottle"  """)
+exec(command="curl -s -X POST 'https://api.telegram.org/bot<TOKEN>/sendPhoto' -F 'chat_id=<CHAT_ID>' -F 'photo=@/root/.nanobot/workspace/butterfly_images/Acerbas_selta.png' -F 'caption=Acerbas selta (page 78)'")
 ```
 
-Replace `CHAT_ID` with the user's Telegram ID from the current session (e.g. `5043136258`).
+- Get `<TOKEN>` from: `python3 -c "import json; print(json.load(open('/root/.nanobot/config.json'))['channels']['telegram']['token'])"`
+- Get `<CHAT_ID>` from the current session (e.g. `5043136258`)
 
 ### Butterfly Extraction Script
 
 To extract all species names + images from a PDF (pages 7–86):
 
 ```
-exec(command="nohup /root/nano_env/bin/python /root/.nanobot/workspace/skills/mnemon/extract_butterflies.py 'https://...' --images-dir /root/.nanobot/workspace/butterfly_images --output /tmp/butterflies.csv --index > /tmp/butterfly_extract.log 2>&1 & echo PID:$!")
+exec(command="nohup /root/nano_env/bin/python /root/.nanobot/workspace/skills/mnemon/extract_butterflies.py 'https://...' --images-dir /root/.nanobot/workspace/butterfly_images --output /root/.nanobot/workspace/butterflies.csv > /tmp/butterfly_extract.log 2>&1 & echo PID:$!")
 ```
 
 Options:
 - `--images-dir DIR` — where to save PNG images (default: `butterfly_images`)
-- `--index` — auto-index all species into mnemon (includes image path in fact)
-- `--store NAME` — target mnemon store
 - `--dpi N` — image resolution (default: 150)
 
 ## Guardrails
