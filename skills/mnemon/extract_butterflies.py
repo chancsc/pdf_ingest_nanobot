@@ -89,8 +89,12 @@ def parse_names(text: str) -> dict:
     return {"scientific_name": scientific_name, "common_name": common_name}
 
 
-def render_page_image(pdf_path: Path, page_index: int, dest: Path, dpi: int) -> bool:
-    """Render a PDF page to PNG using pymupdf. Returns True on success."""
+def extract_page_image(pdf_path: Path, page_index: int, dest: Path, dpi: int) -> bool:
+    """Extract the largest embedded image from a PDF page.
+
+    Falls back to rendering the full page if no embedded image is found.
+    Returns True on success.
+    """
     try:
         import fitz
     except ImportError:
@@ -99,7 +103,20 @@ def render_page_image(pdf_path: Path, page_index: int, dest: Path, dpi: int) -> 
     if page_index >= len(doc):
         doc.close()
         return False
+
     page = doc[page_index]
+    images = page.get_images(full=True)
+
+    if images:
+        # Pick the largest image by pixel area
+        best = max(images, key=lambda img: img[2] * img[3])  # width * height
+        xref = best[0]
+        img_data = doc.extract_image(xref)
+        dest.write_bytes(img_data["image"])
+        doc.close()
+        return True
+
+    # Fallback: render full page
     mat = fitz.Matrix(dpi / 72, dpi / 72)
     pix = page.get_pixmap(matrix=mat)
     pix.save(str(dest))
@@ -190,7 +207,7 @@ def main():
         if sci:
             fname = safe_filename(sci) + ".png"
             dest = images_dir / fname
-            if render_page_image(pdf_path, page_idx, dest, args.dpi):
+            if extract_page_image(pdf_path, page_idx, dest, args.dpi):
                 image_path = str(dest)
         record["image_path"] = image_path
 

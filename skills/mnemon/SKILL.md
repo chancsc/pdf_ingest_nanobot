@@ -98,26 +98,27 @@ Options (append to the command):
 
 Species data lives in `/root/.nanobot/workspace/butterflies.csv` (columns: page, scientific_name, common_name, image_path).
 
-When the user asks about a butterfly, look it up in the CSV:
+When the user asks about a butterfly, look it up in the CSV then send both text and image:
 
+**Step 1 — Lookup:**
 ```
 exec(command="python3 -c \"
-import csv
+import csv, json
 data = list(csv.DictReader(open('/root/.nanobot/workspace/butterflies.csv')))
 q = 'acerbas selta'
 matches = [r for r in data if q.lower() in r['scientific_name'].lower() or q.lower() in r.get('common_name','').lower()]
-print(matches)
+print(json.dumps(matches))
 \"")
 ```
 
-Once you have the match, send the image via Telegram:
+**Step 2 — Reply with text details** (scientific name, common name, page number) as a normal message.
 
+**Step 3 — Send image via Telegram:**
 ```
-exec(command="curl -s -X POST 'https://api.telegram.org/bot<TOKEN>/sendPhoto' -F 'chat_id=<CHAT_ID>' -F 'photo=@/root/.nanobot/workspace/butterfly_images/Acerbas_selta.png' -F 'caption=Acerbas selta (page 78)'")
+exec(command="TOKEN=$(python3 -c \"import json; print(json.load(open('/root/.nanobot/config.json'))['channels']['telegram']['token'])\") && curl -s -X POST \"https://api.telegram.org/bot${TOKEN}/sendPhoto\" -F \"chat_id=<CHAT_ID>\" -F \"photo=@<IMAGE_PATH>\" -F \"caption=<SCIENTIFIC_NAME>\"")
 ```
 
-- Get `<TOKEN>` from: `python3 -c "import json; print(json.load(open('/root/.nanobot/config.json'))['channels']['telegram']['token'])"`
-- Get `<CHAT_ID>` from the current session (e.g. `5043136258`)
+Replace `<CHAT_ID>` with the session user ID (e.g. `5043136258`), `<IMAGE_PATH>` with the `image_path` from the CSV, and `<SCIENTIFIC_NAME>` with the species name.
 
 ### Butterfly Extraction Script
 
