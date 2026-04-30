@@ -1,6 +1,6 @@
 /*
-!memory/
-!SOUL.md
-!USER.md
-!memory/MEMORY.md
 !.gitignore
+!skills/
+!skills/mnemon/
+!skills/mnemon/ingest.py
+!skills/mnemon/SKILL.md
