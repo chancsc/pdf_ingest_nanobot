@@ -235,11 +235,11 @@ def main():
     out_path = Path(args.output)
     mode = "a" if args.append and out_path.exists() else "w"
     with open(out_path, mode, newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["page", "scientific_name", "common_name", "image_path", "description"])
+        writer = csv.DictWriter(f, fieldnames=["page", "scientific_name", "common_name", "image_path"])
         if mode == "w":
             writer.writeheader()
         for r in results:
-            writer.writerow({k: r.get(k) or "" for k in ["page", "scientific_name", "common_name", "image_path", "description"]})
+            writer.writerow({k: r.get(k) or "" for k in ["page", "scientific_name", "common_name", "image_path"]})
 
     found = sum(1 for r in results if r.get("scientific_name"))
     print(f"\nDone: {found}/{total} species → {out_path}")

@@ -96,14 +96,18 @@ Options (append to the command):
 
 ## Butterfly Species Lookup (with image)
 
-Primary source for butterfly details: `/root/.nanobot/workspace/butterflies.csv`
-Columns: `page`, `scientific_name`, `common_name`, `image_path`, `description`
+Two sources — use both together:
+- **Text + descriptions** → mnemon default store (chunked via `ingest.py`)
+- **Image path** → `/root/.nanobot/workspace/butterflies.csv` (columns: page, scientific_name, common_name, image_path)
 
-Use mnemon only for broad semantic/full-text search (e.g. "butterfly with red band on thorax").
+**IMPORTANT: Always use these sources. Never use training knowledge for species names.**
 
-**IMPORTANT: Always look up from the CSV for species details. Never use training knowledge.**
+**Step 1 — Recall text/description from mnemon:**
+```
+exec(command="/root/go/bin/mnemon recall 'kinabalu birdwing' --limit 3")
+```
 
-**Step 1 — Look up the CSV** (replace query with the user's input):
+**Step 2 — Look up image path from CSV:**
 ```
 exec(command="python3 -c \"
 import csv, json
@@ -114,21 +118,14 @@ print(json.dumps(m))
 \"")
 ```
 
-If no match, tell the user the species was not found. Do not guess.
+If no CSV match, tell the user the species was not found. Do not guess.
 
-**Step 2 — Reply with details** from the CSV: scientific name, common name, description, page number.
-
-**Step 3 — Send image via Telegram:**
+**Step 3 — Reply with text details** from mnemon, then send image via Telegram:
 ```
 exec(command="TOKEN=$(python3 -c \"import json; print(json.load(open('/root/.nanobot/config.json'))['channels']['telegram']['token'])\") && curl -s -X POST \"https://api.telegram.org/bot${TOKEN}/sendPhoto\" -F \"chat_id=<CHAT_ID>\" -F \"photo=@<IMAGE_PATH>\" -F \"caption=<SCIENTIFIC_NAME>\"")
 ```
 
 Replace `<CHAT_ID>` with session user ID (e.g. `5043136258`), `<IMAGE_PATH>` with `image_path` from the CSV result.
-
-**For semantic search** (e.g. "butterfly with red band"):
-```
-exec(command="/root/go/bin/mnemon recall 'red band thorax butterfly' --limit 5")
-```
 
 ### When user sends a butterfly PDF
 
